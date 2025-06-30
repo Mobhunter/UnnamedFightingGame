@@ -5,7 +5,8 @@ using System.Collections.Generic;
 using UnityEditor.Experimental.GraphView;
 using NUnit.Framework.Constraints;
 
-[System.Flags] public enum PlayerState
+[System.Flags]
+public enum PlayerState
 {
     None = 0x0,
     Normal = 0x1,
@@ -19,33 +20,36 @@ using NUnit.Framework.Constraints;
     SideAAttack = 0x100, // Added new state for SideAA
     UpAAttack = 0x200, // Added new state for UpAA
     DownAAttack = 0x400, // Added new state for DownAA
-    DownAttack = 0x800,
     IsBlocking = 0x1000,
     JumpOnCooldown = 0x2000,
-    DashOnCooldown = 0x4000
+    DashOnCooldown = 0x4000,
+    AAOnCooldown = 0x8000
 }
+
 
 
 public class Igrac : MonoBehaviour
 {
     public Animator animator;
     public Rigidbody2D myRigidbody2D;
-    public float walkSpeed;
-    public float jumpSpeed;
+    public float walkSpeed = 5f;
+    public float jumpSpeed = 8f;
+    public float jumpCooldown = 0.1f;
+    public float dashSpeed = 10f;
+    public float dashCooldown = 0.2f;
     public float dashDuration = 0.2f; // Duration of the dash
-    public float dashADuration = 0.3f; // Duration of DashA (set in Inspector)
-    public float attackCooldown = 0.3f; // Cooldown for normal attack
-    public float dashACooldown = 0.4f; // Cooldown for DashA attack
-    public float upACooldown = 0.4f; // Cooldown for UpA attack
-    public float upAACooldown = 0.4f; // Cooldown for UpAA attack
-    public float sideAACooldown = 0.5f; // Cooldown for SideAA attack
-    public float downAACooldown = 0.5f; // Cooldown for DownAA
+    public float dashADuration = 0.5f; // Duration of DashA (set in Inspector)
+
+    public float attackDuration = 1f; // Cooldown for normal attack
+
+    public float upADuration = 0.5f; // Cooldown for UpA attack
+
+    public float aACooldown = 0.8f;
+    public float aADuration = 0.5f;
+
     public SpriteRenderer mySpriteRenderer;
     public ContactCheck groundCheck;
     public ContactCheck fwdCheck;
-    public int jumpCount;
-    public int jumpCountLimit = 2;
-    public float jumpCooldown = 0.1f;
     public string horizontalAxis;
     private float InputX = 0f;
 
@@ -53,18 +57,13 @@ public class Igrac : MonoBehaviour
     public KeyCode dashCode;
     public KeyCode attackCode;
     public KeyCode dashAKey1; // First key for DashA
-    public KeyCode dashAKey2; // Second key for DashA
     public KeyCode upAKey1; // First key for UpA
-    public KeyCode upAKey2; // Second key for UpA
     public KeyCode upAAKey1; // First key for UpAA
-    public KeyCode upAAKey2; // Second key for UpAA
     public KeyCode sideAAKey1; // Key for SideAA
     public KeyCode downAAKey1; // Key for DownAA
     public PlayerState playerState = PlayerState.Normal;
     private PlayerState bufferPlayerState = PlayerState.None;
-    public Vector2 savedDirection;
-    public float dashSpeed;
-    public float dashCooldown = 0.2f;
+
     public float direction = 1.0f;
     public Collider2D attackHitbox;
     public Collider2D dashAttackHitbox;
@@ -105,6 +104,7 @@ public class Igrac : MonoBehaviour
         // Checking inputs
         if (groundCheck.HasContact)
         {
+            playerState &= ~PlayerState.JumpOnCooldown;
             // If we are in jump state but on ground - return to normal
             switch (playerState & ~PlayerState.JumpOnCooldown)
             {
@@ -115,153 +115,160 @@ public class Igrac : MonoBehaviour
             }
         }
         if (!IsMSBlocking())
+        {
+            if (groundCheck.HasContact)
+            // Inputs while on ground
             {
-                if (groundCheck.HasContact)
-                // Inputs while on ground
-                {
                 // If we are in jump state but on ground - return to normal
 
                 // Actual on ground input processing
-                    if (Input.GetKeyDown(attackCode) && IsMS(PlayerState.Dash))
+                if (Input.GetKeyDown(attackCode) && IsMS(PlayerState.Dash))
+                {
+                    SetStateWithCooldowns(PlayerState.DashAttack);
+                }
+                else if (IsMS(PlayerState.Normal))
+                {
+                    if (Input.GetKeyDown(attackCode) && Input.GetKey(upAAKey1) && !Input.GetKey(downAAKey1))
                     {
-                        playerState = PlayerState.DashAttack;
+                        SetStateWithCooldowns(PlayerState.UpAttack);
                     }
-                    else if (IsMS(PlayerState.Normal)) {
-                        if (Input.GetKeyDown(attackCode) && Input.GetKey(downAAKey1) && !Input.GetKey(upAAKey1))
-                        {
-                            playerState = PlayerState.DownAttack;
-                        }
-                        else if (Input.GetKeyDown(attackCode) && Input.GetKey(upAAKey1) && !Input.GetKey(downAAKey1))
-                        {
-                            playerState = PlayerState.UpAttack;
-                        }
-                        else if (Input.GetKeyDown(attackCode))
-                        {
-                            playerState = PlayerState.Attack;
-                        }
-                        else if (Input.GetKeyDown(JumpKeyCode))
-                        {
-                            playerState = PlayerState.GroundJump;
-                        }
-                        else if (isShiftPressed && !IsDashOnCooldown())
-                        {
-                            playerState = PlayerState.Dash;
-                            animator.SetTrigger("Dash");
-                            Invoke("StartDashCooldown", dashDuration);
-                        }
+                    else if (Input.GetKeyDown(attackCode))
+                    {
+                        SetStateWithCooldowns(PlayerState.Attack);
+                    }
+                    else if (Input.GetKeyDown(JumpKeyCode))
+                    {
+                        SetStateWithCooldowns(PlayerState.GroundJump);
+                    }
+                    else if (isShiftPressed && !IsDashOnCooldown())
+                    {
+                        SetStateWithCooldowns(PlayerState.Dash);
+                        animator.SetTrigger("Dash");
+                        Invoke("StartDashCooldown", dashDuration);
                     }
                 }
+            }
 
-                else// if (!groundCheck.HasContact )
-                    // Inputs while in air
+            else// if (!groundCheck.HasContact )
+                // Inputs while in air
+            {
+                if (Input.GetKeyDown(JumpKeyCode) && IsMS(PlayerState.Jump) && !IsJumpOnCooldown())
                 {
-                    if (Input.GetKeyDown(JumpKeyCode) && IsMS(PlayerState.Jump) && !IsJumpOnCooldown())
-                    {
-                        playerState = PlayerState.SecondJump;
-                    }
-                    else if (Input.GetKeyDown(attackCode) && Input.GetKey(downAAKey1) && !Input.GetKey(upAAKey1))
+                    SetStateWithCooldowns(PlayerState.SecondJump);
+                }
+                else if (!IsAAOnCooldown()) {
+                    if (Input.GetKeyDown(attackCode) && Input.GetKey(downAAKey1) && !Input.GetKey(upAAKey1))
                     {
                         bufferPlayerState = playerState;
-                        playerState = PlayerState.DownAAttack;
+                        SetStateWithCooldowns(PlayerState.DownAAttack);
                     }
                     else if (Input.GetKeyDown(attackCode) && Input.GetKey(upAAKey1) && !Input.GetKey(downAAKey1))
                     {
                         bufferPlayerState = playerState;
-                        playerState = PlayerState.UpAAttack;
+                        SetStateWithCooldowns(PlayerState.UpAAttack);
                     }
                     else if (Input.GetKeyDown(attackCode))
                     {
                         bufferPlayerState = playerState;
-                        playerState = PlayerState.SideAAttack;
+                        SetStateWithCooldowns(PlayerState.SideAAttack);
                     }
                 }
+                    
             }
-        
+        }
 
-        if (fwdCheck.HasContact)
+
+        if (fwdCheck.HasContact && myRigidbody2D.bodyType == RigidbodyType2D.Dynamic)
         {
             StopHorisontalMovement();
         }
         // Movement processing depending on players state
-        switch (playerState)
+        if (!IsMSBlocking())
         {
-            case PlayerState.UpAAttack:
-                StopMovement();
-                animator.SetTrigger("UpAA");
-                Debug.Log("Up Air Attack happened");
-                playerState |= PlayerState.IsBlocking;
-                Invoke("ReturnPlayerState", upAACooldown);
-                break;
-            case PlayerState.UpAttack:
-                StopMovement();
-                animator.SetTrigger("UpA");
-                Debug.Log("Up Attack happened");
-                playerState |= PlayerState.IsBlocking;
-                Invoke("ReturnPlayerState", upACooldown);
-                break;
-            case PlayerState.SideAAttack:
-                StopMovement();
-                animator.SetTrigger("SideAA");
-                Debug.Log("Air Side Attack happened");
-                playerState |= PlayerState.IsBlocking;
-                Invoke("ReturnPlayerState", sideAACooldown);
-                break;
-            case PlayerState.DownAttack:
-            case PlayerState.DownAAttack:
-                StopMovement();
-                animator.SetTrigger("DownAA");
-                Debug.Log("Down Attack happened");
-                playerState |= PlayerState.IsBlocking;
-                Invoke("ReturnPlayerState", downAACooldown);
-                break;
-            case PlayerState.DashAttack:
-                StopMovement();
-                animator.SetTrigger("DashA");
-                Debug.Log("Dash Attack hapened");
-                playerState |= PlayerState.IsBlocking | PlayerState.DashOnCooldown;
-                Invoke("ReturnPlayerState", dashACooldown);
-                break;
-            case PlayerState.Attack:
-                StopMovement();
-                animator.SetTrigger("Attack");
-                Debug.Log("Attack happened");
-                playerState |= PlayerState.IsBlocking;
-                Invoke("ReturnPlayerState", attackCooldown);
-                break;
-            case PlayerState.GroundJump:
-                Jump();
-                playerState = PlayerState.Jump | PlayerState.JumpOnCooldown;
-                Invoke("RemoveCooldownOnJump", jumpCooldown);
-                goto default;
-            case PlayerState.SecondJump & ~PlayerState.JumpOnCooldown:
-                Jump();
-                playerState |= PlayerState.JumpOnCooldown;
-                goto default;
-            case PlayerState.Dash:
-                if (!fwdCheck.HasContact && !IsMSBlocking())
-                {
-                    myRigidbody2D.linearVelocity = new Vector2(direction * dashSpeed, myRigidbody2D.linearVelocityY);
-                }
-                break;
-            default:
-                if (!IsMSBlocking())
-                {
+            ContinueMovement();
+            switch (playerState & ~PlayerState.DashOnCooldown & ~PlayerState.JumpOnCooldown)
+            {
+                case PlayerState.UpAAttack:
+                    StopMovement();
+                    animator.SetTrigger("UpAA");
+                    Debug.Log("Up Air Attack happened");
+                    playerState |= PlayerState.IsBlocking;
+                    Invoke("StartAACooldown", aADuration);
+                    break;
+                case PlayerState.UpAttack:
+                    StopMovement();
+                    animator.SetTrigger("UpA");
+                    Debug.Log("Up Attack happened");
+                    playerState |= PlayerState.IsBlocking;
+                    Invoke("ReturnPlayerState", upADuration);
+                    break;
+                case PlayerState.SideAAttack:
+                    StopMovement();
+                    animator.SetTrigger("SideAA");
+                    Debug.Log("Air Side Attack happened");
+                    playerState |= PlayerState.IsBlocking;
+                    Invoke("StartAACooldown", aADuration);
+                    break;
+                case PlayerState.DownAAttack:
+                    StopMovement();
+                    animator.SetTrigger("DownAA");
+                    Debug.Log("Down Attack happened");
+                    playerState |= PlayerState.IsBlocking;
+                    Invoke("StartAACooldown", aADuration);
+                    break;
+                case PlayerState.DashAttack:
+                    animator.SetTrigger("DashA");
+                    Debug.Log("Dash Attack hapened");
+                    playerState |= PlayerState.IsBlocking | PlayerState.DashOnCooldown;
+                    Invoke("ReturnPlayerState", dashADuration);
+                    goto case PlayerState.Dash;
+                case PlayerState.Attack:
+                    StopMovement();
+                    animator.SetTrigger("Attack");
+                    Debug.Log("Attack happened");
+                    playerState |= PlayerState.IsBlocking;
+                    Invoke("ReturnPlayerState", attackDuration);
+                    break;
+                case PlayerState.GroundJump:
+                    Jump();
+                    SetStateWithCooldowns(PlayerState.Jump | PlayerState.JumpOnCooldown);
+                    Invoke("RemoveCooldownOnJump", jumpCooldown);
+                    goto default;
+                case PlayerState.SecondJump:
+                case PlayerState.SecondJump | PlayerState.AAOnCooldown:
+                    if (!IsJumpOnCooldown())
+                    {
+                        Jump();
+                        playerState |= PlayerState.JumpOnCooldown;
+                    }
+                    goto default;
+                case PlayerState.Dash:
+                case PlayerState.DashAttack | PlayerState.IsBlocking:
+                    if (!fwdCheck.HasContact)
+                    {
+                        myRigidbody2D.linearVelocity = new Vector2(direction * dashSpeed, myRigidbody2D.linearVelocityY);
+                    }
+                    break;
+                default:
                     ChangeDirection();
                     if (!fwdCheck.HasContact)
                     {
                         myRigidbody2D.linearVelocity = new Vector2(InputX * walkSpeed, myRigidbody2D.linearVelocityY);
                     }
-                }
-                else
-                {
-                    StopMovement();
-                }
-                break;
+                    break;
+            }
         }
     }
 
+    void SetStateWithCooldowns(PlayerState state)
+    {
+        playerState = state | (playerState & PlayerState.DashOnCooldown) | (playerState & PlayerState.JumpOnCooldown) | (playerState & PlayerState.AAOnCooldown);
+    }
+
+
     void RemoveCooldownOnDash()
     {
+        bufferPlayerState = ~PlayerState.DashOnCooldown & bufferPlayerState;
         playerState = ~PlayerState.DashOnCooldown & playerState;
         ReturnPlayerState();
     }
@@ -269,6 +276,11 @@ public class Igrac : MonoBehaviour
     bool IsMSBlocking()
     {
         return (playerState & PlayerState.IsBlocking) == PlayerState.IsBlocking;
+    }
+
+    bool IsAAOnCooldown()
+    {
+        return (playerState & PlayerState.AAOnCooldown) == PlayerState.AAOnCooldown;
     }
 
     bool IsJumpOnCooldown()
@@ -306,13 +318,12 @@ public class Igrac : MonoBehaviour
     {
         EndAttack();
         switch (bufferPlayerState)
-        {         
+        {
             case PlayerState.None:
-                playerState = (PlayerState.DashOnCooldown & playerState) | PlayerState.Normal;
-                Debug.Log(playerState.HasFlag(PlayerState.DashOnCooldown));
+                SetStateWithCooldowns(PlayerState.Normal); ;
                 break;
             default:
-                playerState = bufferPlayerState;
+                SetStateWithCooldowns(bufferPlayerState);
                 bufferPlayerState = PlayerState.None;
                 break;
         }
@@ -325,10 +336,29 @@ public class Igrac : MonoBehaviour
         Invoke("RemoveCooldownOnDash", dashCooldown);
     }
 
+    void StartAACooldown()
+    {
+        ReturnPlayerState();
+        playerState |= PlayerState.AAOnCooldown;
+        playerState &= ~PlayerState.IsBlocking;
+        Invoke("RemoveCooldownOnAA", aACooldown);
+    }
+
+    void RemoveCooldownOnAA()
+    {
+        playerState &= ~PlayerState.AAOnCooldown;
+        ReturnPlayerState();
+    }
+
 
     void StopMovement()
     {
-        myRigidbody2D.linearVelocity = Vector2.zero;
+        myRigidbody2D.bodyType = RigidbodyType2D.Static;
+    }
+
+    void ContinueMovement()
+    {
+        myRigidbody2D.bodyType = RigidbodyType2D.Dynamic;
     }
 
     void StopHorisontalMovement()
@@ -338,8 +368,7 @@ public class Igrac : MonoBehaviour
 
     void Jump()
     {
-        animator.SetTrigger("Jump");
-        myRigidbody2D.linearVelocity = new Vector2(myRigidbody2D.linearVelocityX, 0);
+        animator.SetTrigger("Jump");;
         myRigidbody2D.AddForce(Vector2.up * jumpSpeed, ForceMode2D.Impulse);
     }
     public void Hit()
