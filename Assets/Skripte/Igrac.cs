@@ -98,6 +98,7 @@ public class Igrac : MonoBehaviour
         animator.SetBool("IsWalking", InputX != 0);
         animator.SetBool("HasGround", groundCheck.HasContact);
         animator.SetFloat("DashDuration", 1f / dashDuration);
+        animator.ResetTrigger("EndAttack");
         InputX = Input.GetAxis(horizontalAxis);
         bool isShiftPressed = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
         float now = Time.time;
@@ -303,8 +304,9 @@ public class Igrac : MonoBehaviour
 
     void ReturnPlayerState()
     {
+        EndAttack();
         switch (bufferPlayerState)
-        {
+        {         
             case PlayerState.None:
                 playerState = (PlayerState.DashOnCooldown & playerState) | PlayerState.Normal;
                 Debug.Log(playerState.HasFlag(PlayerState.DashOnCooldown));
