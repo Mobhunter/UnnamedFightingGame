@@ -220,7 +220,7 @@ public class Igrac : MonoBehaviour
                     animator.SetTrigger("DashA");
                     Debug.Log("Dash Attack hapened");
                     playerState |= PlayerState.IsBlocking | PlayerState.DashOnCooldown;
-                    Invoke("ReturnPlayerState", dashADuration);
+                    Invoke("EndDashA", dashADuration);
                     goto case PlayerState.Dash;
                 case PlayerState.Attack:
                     StopMovement();
@@ -365,10 +365,10 @@ public class Igrac : MonoBehaviour
     {
         myRigidbody2D.linearVelocity = new Vector2(0, myRigidbody2D.linearVelocityY);
     }
-
     void Jump()
     {
-        animator.SetTrigger("Jump");;
+        animator.SetTrigger("Jump");
+        myRigidbody2D.linearVelocity = Vector2.zero;
         myRigidbody2D.AddForce(Vector2.up * jumpSpeed, ForceMode2D.Impulse);
     }
     public void Hit()
@@ -445,6 +445,7 @@ public class Igrac : MonoBehaviour
     public void EndDashA()
     {
         animator.SetTrigger("EndAttack");
+        ReturnPlayerState();
     }
 
     public void EndUpA()
